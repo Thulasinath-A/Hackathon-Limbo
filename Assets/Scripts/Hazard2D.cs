@@ -9,6 +9,14 @@ public class Hazard2D : MonoBehaviour
 {
     [SerializeField] PlayerRespawn2D respawnSystem;
 
+    void Awake()
+    {
+        if (respawnSystem == null)
+        {
+            respawnSystem = FindFirstObjectByType<PlayerRespawn2D>();
+        }
+    }
+
     void Reset()
     {
         var collider = GetComponent<Collider2D>();
@@ -17,7 +25,22 @@ public class Hazard2D : MonoBehaviour
 
     void OnTriggerEnter2D(Collider2D other)
     {
-        if (!other.TryGetComponent<PlayerController2D>(out _))
+        TryHazardHit(other);
+    }
+
+    void OnTriggerStay2D(Collider2D other)
+    {
+        TryHazardHit(other);
+    }
+
+    void OnCollisionEnter2D(Collision2D collision)
+    {
+        TryHazardHit(collision.collider);
+    }
+
+    void TryHazardHit(Collider2D other)
+    {
+        if (other.GetComponentInParent<PlayerController2D>() == null)
         {
             return;
         }

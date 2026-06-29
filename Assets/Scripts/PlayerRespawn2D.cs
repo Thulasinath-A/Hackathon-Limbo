@@ -17,6 +17,10 @@ public class PlayerRespawn2D : MonoBehaviour
     [Header("Hazard respawn")]
     [SerializeField] float hazardRespawnDelay = 0.5f;
 
+    [Header("Level reset")]
+    [Tooltip("Leave empty to auto-find all PushableCrate2D in the scene.")]
+    [SerializeField] PushableCrate2D[] resetCrates;
+
     Rigidbody2D playerBody;
     PlayerController2D playerController;
     PlayerDeathState2D playerDeath;
@@ -25,6 +29,8 @@ public class PlayerRespawn2D : MonoBehaviour
     bool frozeBodyWithoutDeathComponent;
 
     public bool IsRespawnPending { get; private set; }
+
+    public static event System.Action OnPlayerRespawned;
 
     void Awake()
     {
@@ -48,7 +54,18 @@ public class PlayerRespawn2D : MonoBehaviour
 
     void Start()
     {
+        EnsureCrateList();
         PlacePlayerAtSpawn(snapCamera: true);
+    }
+
+    void EnsureCrateList()
+    {
+        if (resetCrates != null && resetCrates.Length > 0)
+        {
+            return;
+        }
+
+        resetCrates = FindObjectsByType<PushableCrate2D>(FindObjectsSortMode.None);
     }
 
     void Update()
@@ -81,6 +98,7 @@ public class PlayerRespawn2D : MonoBehaviour
         IsRespawnPending = false;
         UnfreezePlayer();
         ApplyRespawn();
+        OnPlayerRespawned?.Invoke();
     }
 
     /// <summary>Hazards — freeze immediately, then respawn after a short delay.</summary>
@@ -129,10 +147,8 @@ public class PlayerRespawn2D : MonoBehaviour
         if (playerDeath != null)
         {
             playerDeath.Revive();
-            return;
         }
-
-        if (playerBody != null && frozeBodyWithoutDeathComponent)
+        else if (playerBody != null && frozeBodyWithoutDeathComponent)
         {
             playerBody.bodyType = bodyTypeBeforeHazardFreeze;
             frozeBodyWithoutDeathComponent = false;
@@ -163,11 +179,30 @@ public class PlayerRespawn2D : MonoBehaviour
         UnfreezePlayer();
         IsRespawnPending = false;
         hazardRespawnRoutine = null;
+        OnPlayerRespawned?.Invoke();
     }
 
     void ApplyRespawn()
     {
+        ResetCrates();
         PlacePlayerAtSpawn(snapCamera: true);
+    }
+
+    void ResetCrates()
+    {
+        EnsureCrateList();
+        if (resetCrates == null)
+        {
+            return;
+        }
+
+        foreach (var crate in resetCrates)
+        {
+            if (crate != null)
+            {
+                crate.ResetToSpawn();
+            }
+        }
     }
 
     void PlacePlayerAtSpawn(bool snapCamera)

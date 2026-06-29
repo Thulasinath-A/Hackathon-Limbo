@@ -2,52 +2,66 @@ using System.Collections.Generic;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
-using UnityEngine.SceneManagement;
 
 /// <summary>
 /// Level 01 — left-to-right teaching path:
-/// safe start → jump over spikes → E+crate covers spike lane → pit jump → goal.
+/// safe start → jump over spikes → lower pit base + crate over spikes → jump up to exit → pit → goal.
 /// Run: Hackathon Limbo → Build Level 01 Layout (open Level01 scene).
 /// </summary>
 public static class Level01LayoutBuilder
 {
     const string ScenePath = "Assets/Scenes/Level01.unity";
     const string SpikePrefabPath = "Assets/Prefab/Spikes.prefab";
+    const string PlaceholderSpritePath = "Assets/Art/PlaceholderWhite.png";
     const float GroundY = -5f;
-    const float SpikeY = -3.85f;
-    const float CrateY = -3.98f;
+    const float LowerBaseY = -7f;
+    const float LowerWalkTopY = LowerBaseY + 0.5f;
+    const float UpperSpikeY = -3.85f;
+    const float LowerSpikeY = LowerWalkTopY + 0.65f;
+    const float LowerCrateY = LowerWalkTopY + 0.5f;
+    const float CrateStartX = 2.5f;
     const float SpawnY = -3.5f;
     const float GoalY = -3.95f;
 
-    static readonly (string beat, string floorName, float centerX, float width)[] Floors =
+    static readonly (string beat, string floorName, float centerX, float width, float groundY)[] Floors =
     {
-        ("Beat01_Start", "Floor_Start", -16f, 12f),
-        ("Beat02_Spikes", "Floor_SpikeRunway", -7f, 6f),
-        ("Beat02_Spikes", "Floor_SpikeLanding", -2f, 4f),
-        ("Beat03_Crate", "Floor_CrateLane", 3f, 6f),
-        ("Beat03_Crate", "Floor_AfterSpikes", 9f, 6f),
-        ("Beat04_Pit", "Floor_PitLeft", 13.25f, 2.5f),
-        ("Beat04_Pit", "Floor_PitRight", 20f, 5f),
-        ("Beat05_Goal", "Floor_Goal", 25.5f, 6f),
+        ("Beat01_Start", "Floor_Start", -16f, 12f, GroundY),
+        ("Beat02_Spikes", "Floor_SpikeRunway", -7f, 6f, GroundY),
+        ("Beat02_Spikes", "Floor_SpikeLanding", -2f, 4f, GroundY),
+        ("Beat03_Crate", "Floor_CrateUpperEntry", -1.25f, 2f, GroundY),
+        ("Beat03_Crate", "Floor_CrateDropLedge", 0.35f, 1.2f, GroundY),
+        ("Beat03_Crate", "Floor_CratePitBase", 4.5f, 13f, LowerBaseY),
+        ("Beat03_Crate", "Floor_AfterSpikes", 11.5f, 5f, GroundY),
+        ("Beat04_Pit", "Floor_PitLeft", 15.5f, 3f, GroundY),
+        ("Beat04_Pit", "Floor_PitRight", 20f, 5f, GroundY),
+        ("Beat05_Goal", "Floor_Goal", 25.5f, 6f, GroundY),
     };
 
-    static readonly (string beat, float x)[] SpikePlacements =
+    static readonly (string beat, float x, float y)[] SpikePlacements =
     {
-        ("Beat02_Spikes", -3f),
-        ("Beat03_Crate", 4.6f),
-        ("Beat03_Crate", 5.8f),
+        ("Beat02_Spikes", -3f, UpperSpikeY),
+        ("Beat03_Crate", 4f, LowerSpikeY),
+        ("Beat03_Crate", 5.5f, LowerSpikeY),
     };
 
     [MenuItem("Hackathon Limbo/Build Level 01 Layout")]
     public static void BuildFromMenu()
     {
-        Build();
-        EditorUtility.DisplayDialog(
-            "Level 01",
-            "Layout built in Level01.\n\n" +
-            "Beats: start → spike jump → crate covers spikes → pit → goal.\n" +
-            "Save the scene if Unity prompts you.",
-            "OK");
+        if (Build())
+        {
+            EditorUtility.DisplayDialog(
+                "Level 01",
+                "Layout built in Level01.\n\n" +
+                "Beat03: walk the short upper ledge, drop to the lower base, then push the crate on that shelf.",
+                "OK");
+        }
+        else
+        {
+            EditorUtility.DisplayDialog(
+                "Level 01",
+                "Build failed. Check the Console for errors.",
+                "OK");
+        }
     }
 
     public static void BuildFromCommandLine()
@@ -55,47 +69,50 @@ public static class Level01LayoutBuilder
         Build();
     }
 
-    static void Build()
+    static bool Build()
     {
         var scene = EditorSceneManager.OpenScene(ScenePath, OpenSceneMode.Single);
-
-        var groundTemplate = GameObject.Find("Ground_Platform");
-        if (groundTemplate == null)
-        {
-            Debug.LogError("Level01LayoutBuilder: Ground_Platform not found in scene.");
-            return;
-        }
 
         var spikePrefab = AssetDatabase.LoadAssetAtPath<GameObject>(SpikePrefabPath);
         if (spikePrefab == null)
         {
             Debug.LogError("Level01LayoutBuilder: Spikes prefab not found.");
-            return;
+            return false;
         }
 
+        UnparentSceneEssentials();
         RemovePreviousGeneratedContent();
-        DestroyOrphanGround(groundTemplate);
+
+        var floorStamp = CreateFloorStampObject();
+        if (floorStamp == null)
+        {
+            Debug.LogError("Level01LayoutBuilder: Could not create floor template (sprite missing?).");
+            return false;
+        }
 
         var beatRoots = CreateBeatRoots();
         foreach (var floor in Floors)
         {
             var parent = beatRoots[floor.beat];
-            CreateFloor(groundTemplate, parent, floor.floorName, floor.centerX, floor.width);
+            CreateFloor(floorStamp, parent, floor.floorName, floor.centerX, floor.width, floor.groundY);
         }
+
+        Object.DestroyImmediate(floorStamp);
 
         foreach (var spike in SpikePlacements)
         {
             var instance = (GameObject)PrefabUtility.InstantiatePrefab(spikePrefab, beatRoots[spike.beat]);
-            instance.transform.position = new Vector3(spike.x, SpikeY, 0f);
+            instance.transform.position = new Vector3(spike.x, spike.y, 0f);
         }
 
-        RepositionNamedObject("SpawnPoint", new Vector3(-19f, SpawnY, 0f), beatRoots["Beat01_Start"]);
-        RepositionNamedObject("Crate", new Vector3(0.8f, CrateY, 0f), beatRoots["Beat03_Crate"]);
-        RepositionNamedObject("Goal", new Vector3(27f, GoalY, 0f), beatRoots["Beat05_Goal"]);
+        EnsureNamedObject("SpawnPoint", new Vector3(-19f, SpawnY, 0f), beatRoots["Beat01_Start"]);
+        EnsureNamedObject("Crate", new Vector3(CrateStartX, LowerCrateY, 0f), beatRoots["Beat03_Crate"]);
+        EnsureNamedObject("Goal", new Vector3(27f, GoalY, 0f), beatRoots["Beat05_Goal"]);
 
         var player = GameObject.Find("Player");
         if (player != null)
         {
+            player.transform.SetParent(null);
             player.transform.position = new Vector3(-19f, SpawnY, 0f);
         }
 
@@ -104,12 +121,20 @@ public static class Level01LayoutBuilder
 
         EditorSceneManager.MarkSceneDirty(scene);
         EditorSceneManager.SaveScene(scene);
-        Debug.Log("Level01LayoutBuilder: done.");
+        Debug.Log("Level01LayoutBuilder: done. Floors are named Floor_* under each Beat folder.");
+        return true;
     }
 
-    static void DestroyOrphanGround(GameObject template)
+    static void UnparentSceneEssentials()
     {
-        Object.DestroyImmediate(template);
+        foreach (var objectName in new[] { "SpawnPoint", "Crate", "Goal", "Player" })
+        {
+            var go = GameObject.Find(objectName);
+            if (go != null)
+            {
+                go.transform.SetParent(null);
+            }
+        }
     }
 
     static void RemovePreviousGeneratedContent()
@@ -130,6 +155,70 @@ public static class Level01LayoutBuilder
                 Object.DestroyImmediate(spike.gameObject);
             }
         }
+
+        foreach (var floorName in new[]
+                 {
+                     "Floor_Start", "Floor_SpikeRunway", "Floor_SpikeLanding", "Floor_CrateUpperEntry",
+                     "Floor_CratePitBase", "Floor_CrateDropLedge", "Floor_CrateLane", "Floor_AfterSpikes",
+                     "Floor_PitLeft",
+                     "Floor_PitRight", "Floor_Goal",
+                 })
+        {
+            var floor = GameObject.Find(floorName);
+            if (floor != null)
+            {
+                Object.DestroyImmediate(floor);
+            }
+        }
+
+        var legacyGround = GameObject.Find("Ground_Platform");
+        if (legacyGround != null)
+        {
+            Object.DestroyImmediate(legacyGround);
+        }
+
+        var stamp = GameObject.Find("_Level01FloorStamp");
+        if (stamp != null)
+        {
+            Object.DestroyImmediate(stamp);
+        }
+    }
+
+    static GameObject CreateFloorStampObject()
+    {
+        var sprite = LoadPlaceholderSprite();
+        if (sprite == null)
+        {
+            return null;
+        }
+
+        var go = new GameObject("_Level01FloorStamp");
+        var renderer = go.AddComponent<SpriteRenderer>();
+        renderer.sprite = sprite;
+        renderer.color = Color.black;
+        renderer.drawMode = SpriteDrawMode.Sliced;
+        renderer.size = new Vector2(12f, 1f);
+
+        var collider = go.AddComponent<BoxCollider2D>();
+        collider.size = new Vector2(12f, 1f);
+
+        ApplyGroundLayer(go);
+        go.transform.position = new Vector3(0f, GroundY, 0f);
+        return go;
+    }
+
+    static Sprite LoadPlaceholderSprite()
+    {
+        var assets = AssetDatabase.LoadAllAssetsAtPath(PlaceholderSpritePath);
+        foreach (var asset in assets)
+        {
+            if (asset is Sprite sprite)
+            {
+                return sprite;
+            }
+        }
+
+        return null;
     }
 
     static Dictionary<string, Transform> CreateBeatRoots()
@@ -144,12 +233,22 @@ public static class Level01LayoutBuilder
         return map;
     }
 
-    static GameObject CreateFloor(GameObject template, Transform parent, string name, float centerX, float width)
+    static GameObject CreateFloor(
+        GameObject template,
+        Transform parent,
+        string name,
+        float centerX,
+        float width,
+        float groundY)
     {
-        var go = Object.Instantiate(template, parent);
+        var go = Object.Instantiate(
+            template,
+            new Vector3(centerX, groundY, 0f),
+            Quaternion.identity,
+            parent);
         go.name = name;
-        go.transform.position = new Vector3(centerX, GroundY, 0f);
-        go.transform.localScale = Vector3.one;
+        go.hideFlags = HideFlags.None;
+        ApplyGroundLayer(go);
 
         var renderer = go.GetComponent<SpriteRenderer>();
         if (renderer != null)
@@ -167,12 +266,21 @@ public static class Level01LayoutBuilder
         return go;
     }
 
-    static void RepositionNamedObject(string objectName, Vector3 position, Transform parent)
+    static void ApplyGroundLayer(GameObject go)
+    {
+        var groundLayer = LayerMask.NameToLayer("Ground");
+        if (groundLayer >= 0)
+        {
+            go.layer = groundLayer;
+        }
+    }
+
+    static void EnsureNamedObject(string objectName, Vector3 position, Transform parent)
     {
         var go = GameObject.Find(objectName);
         if (go == null)
         {
-            Debug.LogWarning($"Level01LayoutBuilder: {objectName} not found.");
+            Debug.LogWarning($"Level01LayoutBuilder: {objectName} not found — create it in the scene.");
             return;
         }
 
@@ -213,6 +321,14 @@ public static class Level01LayoutBuilder
 
             so.FindProperty("fallDeathY").floatValue = -12f;
             so.ApplyModifiedPropertiesWithoutUndo();
+        }
+
+        var win = manager.GetComponent<LevelWin2D>();
+        if (win != null)
+        {
+            var winSo = new SerializedObject(win);
+            winSo.FindProperty("nextSceneName").stringValue = "Level02";
+            winSo.ApplyModifiedPropertiesWithoutUndo();
         }
     }
 

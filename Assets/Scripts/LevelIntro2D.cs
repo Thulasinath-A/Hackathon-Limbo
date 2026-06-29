@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.SceneManagement;
 
 /// <summary>
 /// Optional: add to GameManager per scene to show a short level title on start.
@@ -15,6 +16,18 @@ public class LevelIntro2D : MonoBehaviour
             gameplayUI = FindFirstObjectByType<GameplayUI>();
         }
 
-        gameplayUI?.ShowLevelTitle(levelTitle);
+        gameplayUI?.ShowLevelTitle(ResolveTitle());
+    }
+
+    string ResolveTitle()
+    {
+        var sceneName = SceneManager.GetActiveScene().name;
+        if (sceneName.Length > 5 && sceneName.StartsWith("Level")
+            && int.TryParse(sceneName.Substring(5), out var levelNumber))
+        {
+            return $"Level {levelNumber:00}";
+        }
+
+        return levelTitle;
     }
 }

@@ -83,6 +83,11 @@ public class GameplayUI : MonoBehaviour
         }
     }
 
+    public void DismissWin()
+    {
+        HideWin();
+    }
+
     public void ShowLevelTitle(string title)
     {
         if (levelTitlePanel == null || levelTitleText == null)

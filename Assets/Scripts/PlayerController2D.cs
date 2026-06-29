@@ -33,6 +33,7 @@ public class PlayerController2D : MonoBehaviour
     [Tooltip("While in the air, do not drive into these layers (stops crate-edge sticking).")]
     [SerializeField] LayerMask wallLayers;
     [SerializeField] float wallCheckDistance = 0.08f;
+    [SerializeField] float crateReachRadius = 1.15f;
 
     Rigidbody2D rb;
     CapsuleCollider2D bodyCollider;
@@ -149,7 +150,20 @@ public class PlayerController2D : MonoBehaviour
         }
         else
         {
-            rb.linearVelocity = new Vector2(moveX * moveSpeed, velocityY);
+            if (TryPushGroundedCrate(moveX, out var pushDelta))
+            {
+                rb.MovePosition(rb.position + pushDelta);
+                rb.linearVelocity = new Vector2(0f, velocityY);
+            }
+            else
+            {
+                if (IsPushingBlockedCrate(moveX))
+                {
+                    moveX = 0f;
+                }
+
+                rb.linearVelocity = new Vector2(moveX * moveSpeed, velocityY);
+            }
         }
 
         if (jumpQueued && IsGrounded())
@@ -190,6 +204,94 @@ public class PlayerController2D : MonoBehaviour
     bool IsGrounded()
     {
         return Physics2D.OverlapCircle(groundCheck.position, groundCheckRadius, groundLayer);
+    }
+
+    bool TryPushGroundedCrate(float moveX, out Vector2 pushDelta)
+    {
+        pushDelta = Vector2.zero;
+        if (!IsInteractHeld || Mathf.Abs(moveX) < 0.01f || bodyCollider == null)
+        {
+            return false;
+        }
+
+        var crate = FindCrateInPushRange();
+        if (crate == null)
+        {
+            return false;
+        }
+
+        return crate.TryPush(this, moveX, out pushDelta);
+    }
+
+    PushableCrate2D FindCrateInPushRange()
+    {
+        var origin = bodyCollider != null
+            ? (Vector2)bodyCollider.bounds.center
+            : (Vector2)transform.position;
+
+        var hits = Physics2D.OverlapCircleAll(origin, crateReachRadius, groundLayer);
+        PushableCrate2D best = null;
+        var bestDistance = float.MaxValue;
+
+        foreach (var collider in hits)
+        {
+            if (collider == null || !collider.TryGetComponent<PushableCrate2D>(out var crate))
+            {
+                continue;
+            }
+
+            var distance = Vector2.Distance(origin, collider.bounds.center);
+            if (distance >= bestDistance)
+            {
+                continue;
+            }
+
+            bestDistance = distance;
+            best = crate;
+        }
+
+        return best;
+    }
+
+    bool IsPushingBlockedCrate(float moveX)
+    {
+        if (!IsInteractHeld || Mathf.Abs(moveX) < 0.01f || bodyCollider == null)
+        {
+            return false;
+        }
+
+        var direction = moveX > 0f ? Vector2.right : Vector2.left;
+        var filter = new ContactFilter2D
+        {
+            useLayerMask = true,
+            layerMask = groundLayer,
+            useTriggers = false
+        };
+
+        var hitCount = bodyCollider.Cast(direction, filter, wallHits, wallCheckDistance + 0.05f);
+        for (var i = 0; i < hitCount; i++)
+        {
+            var hit = wallHits[i];
+            if (hit.collider == null)
+            {
+                continue;
+            }
+
+            if (!hit.collider.TryGetComponent<PushableCrate2D>(out var crate))
+            {
+                continue;
+            }
+
+            var crateDelta = new Vector2(
+                moveX * moveSpeed * Time.fixedDeltaTime,
+                0f);
+            if (crate.WouldBlockMove(crateDelta))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>
